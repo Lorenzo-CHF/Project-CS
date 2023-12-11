@@ -1,0 +1,231 @@
+import streamlit as st
+import yfinance as yf
+import pandas as pd
+import matplotlib.pyplot as plt
+from datetime import datetime
+import requests
+
+
+
+
+# Streamlit app layout https://medium.com/@sugath.mudali/creating-a-stock-dashboard-with-streamlit-441039bdf7e0
+st.title("Stock Holdings Value Tracker")
+
+tab1, tab2 = st.tabs(["Portfolio Tracker", "Information Tool"])
+
+with tab1:
+    # User definition
+    users = {
+        "Magdalena": "Test1",
+        "Peter": "Test2"
+        # More users possible here
+    }
+    
+    
+    # Login UI
+    username = st.sidebar.text_input("Username")
+    password = st.sidebar.text_input("Password", type='password')
+    
+    
+    # Function to verify credentials
+    def check_credentials(username, password):
+        return username in users and users[username] == password
+    
+    
+    # Verify users
+    if st.sidebar.button("Login"):
+        if check_credentials(username, password):
+            st.success("Logged in as {}".format(username))
+        else:
+            st.error("Incorrect username or password")
+    
+    
+    # Initialize holdings https://medium.com/@sugath.mudali/creating-a-stock-dashboard-with-streamlit-441039bdf7e0
+    if 'holdings' not in st.session_state:
+        st.session_state['holdings'] = []
+    
+    
+    
+    # Function to add a holding
+    def add_holding():
+        st.session_state['holdings'].append({
+            'symbol': symbol,
+            'amount': amount_of_shares,
+            'purchase_date': purchase_date
+        })
+    
+    
+    
+    # Function to delete a holding
+    def delete_holding(index):
+        st.session_state['holdings'].pop(index)
+    
+    
+    
+    # User interface to add a new holding
+    with st.form("Add Holding"):
+        symbol = st.text_input("Enter Stock Symbol", "AAPL")
+        amount_of_shares = st.number_input("Enter the Number of Shares")
+        purchase_date = st.date_input("Select Purchase Date")
+        submitted = st.form_submit_button("Add Holding")
+        if submitted:
+            add_holding()
+    
+    
+    
+    
+    # Display current holdings
+    for index, holding in enumerate(st.session_state['holdings']):
+        st.write(f"Holding {index + 1}: {holding['symbol']} - {holding['amount']} shares")
+        if st.button(f"Delete Holding {index + 1}", key=f"delete_{index}"):
+            delete_holding(index)
+    
+    
+    
+    
+    # Fetch data and calculate portfolio value https://medium.datadriveninvestor.com/build-a-stock-screening-dashboard-with-streamlit-7158cedf605c / https://python-yahoofinance.readthedocs.io/en/latest/
+    if st.button("Update Portfolio"):
+        total_values = pd.DataFrame()
+        for holding in st.session_state['holdings']:
+            stock = yf.Ticker(holding['symbol'])
+            data = stock.history(start=holding['purchase_date'].strftime('%Y-%m-%d'))
+            holding_value = data['Close'] * holding['amount']
+            holding_value.name = holding['symbol']  # Naming the series with the symbol for identification
+            if total_values.empty:
+                total_values = holding_value.to_frame()
+            else:
+                total_values = total_values.join(holding_value, how='outer')
+
+
+
+        # Sum across columns to get the total portfolio value
+        if not total_values.empty:
+            total_values['Total Value'] = total_values.sum(axis=1)
+            # Format the index to display only year, month, and day
+            total_values.index = total_values.index.date
+            # Display data as a line chart
+            st.line_chart(total_values['Total Value'])
+            # Display the data in a table format
+            st.dataframe(total_values, width=700, height=300)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+with tab2:
+        # Function to format camelCase names into a readable format https://python-yahoofinance.readthedocs.io/en/latest/
+    def format_camel_case(name):
+        formatted_name = ''.join([' ' + char if char.isupper() else char for char in name]).strip()
+        return formatted_name.title()
+    # Function to fetch stock data
+    def fetch_stock_data(symbol):
+        stock = yf.Ticker(symbol)
+        return stock.info
+    # Function to get the original key from formatted name
+    def get_original_key(formatted_name, sample_data):
+        for key in sample_data.keys():
+            if format_camel_case(key) == formatted_name:
+                return key
+        return None
+    
+
+        # NewsAPI key
+    news_api_key = 'd3e1cfc10e9e472ca85a16f294c9dc78'
+
+    # Function to fetch news https://newsapi.org/docs
+    def get_stock_news(symbol):
+        base_url = "https://newsapi.org/v2/everything?"
+        query = f"q={symbol}&apiKey={news_api_key}"
+        response = requests.get(base_url + query)
+        articles = response.json().get('articles', [])
+        return articles[:5]  # Return top 5 articles
+
+    # Display news for the selected stock
+    news_symbol = st.sidebar.text_input("Enter Stock Symbol for News")
+    if news_symbol:
+            st.sidebar.write(f"Latest News for {news_symbol}:")
+            news_items = get_stock_news(news_symbol)
+            for item in news_items:
+                    st.sidebar.write(f"**{item['title']}**")
+                    st.sidebar.write(item['description'])
+                    st.sidebar.write(f"[Read more]({item['url']})", unsafe_allow_html=True)
+                    st.sidebar.write("---")
+
+
+    # Initialize session state for stock symbols
+    if 'num_stocks' not in st.session_state:
+        st.session_state['num_stocks'] = 1  # Start with 1 stock
+    # Fetch data for a sample stock to get all data points
+    sample_stock = yf.Ticker('AAPL')
+    sample_data = sample_stock.info
+    # Extract and format all available data points
+    all_data_points = [format_camel_case(point) for point in sample_data.keys()]
+    # Multiselect dropdown for choosing data points
+    selected_data_points = st.multiselect('Select data points for comparison', all_data_points, default=['Current Price', 'Market Cap', 'Sector', 'Dividend Rate', 'Dividend Yield', 'Payout Ratio', 'Volume', 'Currency', 'Price To Book'])
+    # Function to add more stocks
+    def add_stock():
+        st.session_state['num_stocks'] += 1
+    # Button to add more stocks
+    st.button('Add another stock', on_click=add_stock)
+    # Create input fields dynamically based on the number of stocks
+    stock_symbols = []
+    for i in range(st.session_state['num_stocks']):
+        symbol = st.text_input(f'Stock Symbol {i + 1}', key=f'stock_{i}')
+        if symbol:
+            stock_symbols.append(symbol)
+    # Fetch data for entered symbols
+    stock_data = [fetch_stock_data(symbol) for symbol in stock_symbols if symbol]
+    # Only proceed if at least one stock has been entered
+    if stock_data:
+        # Adjust the data fetching to use the original keys
+        comparison_data = {'Data Point': selected_data_points}
+        for symbol, data in zip(stock_symbols, stock_data):
+            comparison_data[symbol] = [data.get(get_original_key(point, sample_data)) for point in selected_data_points]
+        # Create the DataFrame
+        comparison_df = pd.DataFrame(comparison_data)
+        # Styling the DataFrame
+        st.write(comparison_df.style.set_properties(**{'border-color': 'black', 'border-width': '1px', 'border-style': 'solid'}).set_table_styles([{'selector': 'th', 'props': [('font-size', '16px')]}]))
+    # Function to fetch YTD stock price data and normalize it
+    def fetch_normalize_stock_data(symbol):
+        today = datetime.today().strftime('%Y-%m-%d')
+        start_of_year = datetime.today().replace(month=1, day=1).strftime('%Y-%m-%d')
+        stock = yf.Ticker(symbol)
+        df = stock.history(start=start_of_year, end=today)
+        # Normalize to 100 at the starting point
+        normalized_df = (df['Close'] / df['Close'].iloc[0]) * 100
+        return normalized_df
+    # Fetch and plot data if at least one stock has been entered
+    if stock_data:
+        plt.figure(figsize=(10, 6))
+        for symbol in stock_symbols:
+            normalized_prices = fetch_normalize_stock_data(symbol)
+            plt.plot(normalized_prices, label=symbol)
+        plt.title("YTD Stock Price Comparison, Normalized to 100")
+        plt.xlabel("Date")
+        plt.ylabel("Normalized Price")
+        plt.legend()
+        st.pyplot(plt)
